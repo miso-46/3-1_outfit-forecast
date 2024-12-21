@@ -1,0 +1,8 @@
+# 全ての.envファイルを無視
+*.env
+
+# node_modulesディレクトリを無視
+node_modules/
+
+# ログファイルを無視
+*.log
