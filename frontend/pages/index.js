@@ -20,6 +20,10 @@ const WeatherApp = () => {
   const [imageUrl, setImageUrl] = useState('');
   const [imageLoading, setImageLoading] = useState(false);
 
+  // RenderのURLを環境変数から取得
+  const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
+  console.log("Backend URL:",backendUrl);
+
   const getCityName = () => {
     const selectedCity = cities.find(city => city.id === cityCode);
     return selectedCity ? selectedCity.name : '都市名が見つかりません';
@@ -103,7 +107,7 @@ const WeatherApp = () => {
     try {
       setOutfitLoading(true);
       setImageLoading(true); 
-      const response = await fetch('http://localhost:5000/api/gpt', {
+      const response = await fetch(`${backendUrl}/api/gpt`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
