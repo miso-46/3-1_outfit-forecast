@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from 'react';
-import prefecturesData from './prefectures';
+import prefecturesData from '../components/prefectures';
 import ReactMarkdown from 'react-markdown';
 import '../app/globals.css'; // TailwindCSSを使用するためにスタイルシートをインポート
 
 const WeatherApp = () => {
-  const [prefectures, setPrefectures] = useState(prefecturesData);
+  const [prefectureList, setPrefectureList] = useState(prefecturesData);
   const [cities, setCities] = useState([]);
   const [prefectureCode, setPrefectureCode] = useState('');
   const [cityCode, setCityCode] = useState('');
@@ -34,7 +34,7 @@ const WeatherApp = () => {
   const handlePrefectureChange = (e) => {
     const selectedPrefecture = e.target.value;
     setPrefectureCode(selectedPrefecture);
-    const selectedCities = prefectures.find(pref => pref.code === selectedPrefecture)?.cities || [];
+    const selectedCities = prefectureList.find(pref => pref.code === selectedPrefecture)?.cities || [];
     setCities(selectedCities);
     setCityCode('');
   };
@@ -156,7 +156,7 @@ const WeatherApp = () => {
             </label>
             <select className="select select-bordered w-full" onChange={handlePrefectureChange} value={prefectureCode}>
               <option value="">-- 都道府県を選択 --</option>
-              {prefectures.map((pref) => (
+              {prefectureList.map((pref) => (
                 <option key={pref.code} value={pref.code}>
                   {pref.name}
                 </option>
