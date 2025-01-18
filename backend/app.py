@@ -1,11 +1,11 @@
 import re
 from flask import Flask, jsonify, request
+from flask_cors import CORS
+import os
+from dotenv import load_dotenv
 import requests
 import xml.etree.ElementTree as ET
-from flask_cors import CORS
-import openai
-from dotenv import load_dotenv
-import os
+from openai import OpenAI
 from deep_translator import GoogleTranslator
 
 app = Flask(__name__)
@@ -24,9 +24,9 @@ def home():
 # 都道府県のリストを取得するAPI
 @app.route('/api/prefectures', methods=['GET'])
 def get_prefectures():
-    response = requests.get(PRIMARY_AREA_URL)
-    
-    if response.status_code == 200:
+    try:
+        response = requests.get(PRIMARY_AREA_URL, timeout=10)
+        response.raise_for_status()
         xml_data = response.content
         root = ET.fromstring(xml_data)
         
@@ -44,59 +44,63 @@ def get_prefectures():
                 })
         
         return jsonify(prefectures=prefectures)
-    else:
-        return jsonify(error='Failed to fetch data'), 500
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching prefectures: {e}")
+        return jsonify(error="Failed to fetch prefecture data"), 500
 
 # 都道府県別の都市リストを取得して返す関数
 def get_cities_by_prefecture(prefecture_code):
-    response = requests.get(PRIMARY_AREA_URL)
-    if response.status_code != 200:
+    try:
+        response = requests.get(PRIMARY_AREA_URL, timeout=10)
+        response.raise_for_status()
+        root = ET.fromstring(response.content)
+        cities = []
+
+        for pref in root.findall(".//pref"):
+            if pref.attrib['title'] == prefecture_code:
+                for city in pref.findall("city"):
+                    cities.append({"name": city.attrib['title'], "code": city.attrib['id']})
+        return cities
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching cities: {e}")
         return []
-
-    root = ET.fromstring(response.content)
-    cities = []
-
-    for pref in root.findall(".//pref[@title]"):
-        if pref.attrib['id'] == prefecture_code:
-            for city in pref.findall(".//city"):
-                cities.append({"name": city.attrib['title'], "code": city.attrib['id']})
-    return cities
 
 # 天気情報を取得する関数
 def get_weather(city_code):
     url = f"{WEATHER_API_URL}?city={city_code}"
-    response = requests.get(url)
-    if response.status_code != 200:
-        return None
-
     try:
-        root = ET.fromstring(response.content)
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()  # JSONデータを解析
+
+        # 必要なデータが存在するか確認
+        if not data.get("forecasts"):
+            print("No forecasts found in response.")
+            return None
+
         weather_data = {
-            'telop': root.find('forecast/telop').text,
+            'telop': data['forecasts'][0]['telop'],
             'temperature': {
                 'max': {
-                    'celsius': root.find('forecast/temperature/max/celsius').text
-                },
+                    'celsius': data['forecasts'][0]['temperature']['max']['celsius']
+                } if data['forecasts'][0]['temperature']['max'] else None,
                 'min': {
-                    'celsius': root.find('forecast/temperature/min/celsius').text
-                }
+                    'celsius': data['forecasts'][0]['temperature']['min']['celsius']
+                } if data['forecasts'][0]['temperature']['min'] else None,
             },
-            # 'chanceOfRain': [
-            #     {'value': root.find(f'forecast/chanceOfRain/{i}').text} for i in range(1, 5)
-            # ],
             'chanceOfRain': {
-                'T00_06': root.find('forecast/chanceOfRain/period[1]').text,
-                'T06_12': root.find('forecast/chanceOfRain/period[2]').text,
-                'T12_18': root.find('forecast/chanceOfRain/period[3]').text,
-                'T18_24': root.find('forecast/chanceOfRain/period[4]').text,
+                'T00_06': data['forecasts'][0]['chanceOfRain']['T00_06'],
+                'T06_12': data['forecasts'][0]['chanceOfRain']['T06_12'],
+                'T12_18': data['forecasts'][0]['chanceOfRain']['T12_18'],
+                'T18_24': data['forecasts'][0]['chanceOfRain']['T18_24'],
             },
             'image': {
-                'url': root.find('forecast/image/url').text
+                'url': data['forecasts'][0]['image']['url']
             }
         }
         return weather_data
-    except ET.ParseError as e:
-        print(f"Error parsing XML: {e}")
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching weather: {e}")
         return None
 
 # 都道府県に基づいた都市リストを返すエンドポイント
@@ -153,17 +157,18 @@ def gpt():
                  f"降水確率は{rain_chance_str}です。この天気に基づいて、30代の男性女性それぞれにおすすめの{scene}シーンに適したトレンドスタイルを提案してください。"
 
         load_dotenv(override=True) #環境変数を更新
-        openai.api_key = os.getenv('OPENAI_API_KEY')
-        if not openai.api_key:
-            print("Error: OpenAI APIキーが設定されていません.")
+        client = OpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),  # This is the default and can be omitted
+        )
 
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+        response = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": "あなたはファッションアドバイザーです。その日の天気とシーンに応じた服装を提案するプロフェッショナルです。"},
                 {"role": "user", "content": prompt}
             ],
+            model="gpt-4o-mini",
         )
+
         suggestion = response.choices[0].message.content
         # Markdown記法を削除するための処理
         plain_suggestion = re.sub(r'(\*\*|###|##|#)', '', suggestion)
@@ -185,21 +190,21 @@ def gpt():
         )
 
         # フロントエンドにローディング中のレスポンスを早く返す
-        jsonify({
+        response_loading = jsonify({
             'loading_message': '生成AIが裏で今コーディネート中です',
-            'suggestion': suggestion
+            'suggestion': translated_suggestion
         })
 
         # DALL-E 3で画像生成
-        image_response = openai.Image.create(
+        image_response = client.images.generate(
             model="dall-e-3",
             prompt=image_prompt,
+            size="1024x1024",
+            quality="standard",
             n=1,
-            size="1024x1024"
         )
-
         # 生成された画像URLを取得
-        image_url = image_response['data'][0]['url']
+        image_url = image_response.data[0].url
 
         # 画像生成結果を返す
         return jsonify({
