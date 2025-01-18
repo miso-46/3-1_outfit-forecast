@@ -1,7 +1,7 @@
 Flask==2.2.5
 Flask-CORS==3.0.10
 requests==2.31.0
-openai==0.27.0
+openai==1.59.8
 Pillow==10.0.0
 python-dotenv==1.0.0
 deep-translator==1.11.4
